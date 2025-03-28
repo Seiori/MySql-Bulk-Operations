@@ -9,6 +9,7 @@ using MySqlConnector;
 using Seiori.MySql.Classes;
 using Seiori.MySql.Enums;
 using Seiori.MySql
+using Seiori.MySql.Helpers;
 
 namespace Seiori.MySql;
 
@@ -64,33 +65,21 @@ public static class DbContextExtensions
         
         var entityProps = BulkExtensionHelpers.GetEntityProperties(entityType);
         if (entityProps.TableName is null) throw new InvalidOperationException("Table name could not be determined.");
-
-        // Move to new Functions when Ready :D
-        var entityList = entities.ToList();
-        var batchedEntities = entityList.Chunk(options.BatchSize).ToList();
-
+        
         if (context.Database.GetDbConnection().State is not ConnectionState.Open) await context.Database.OpenConnectionAsync();
-
-        var connection = context.Database.GetDbConnection();
+        
+        var entityList = entities.ToArray();
+        if (entityList.Length is 0) return;
+        
+        var batchedEntities = entityList.Chunk(options.BatchSize).ToArray();
+        
         foreach (var batch in batchedEntities)
         {
             var sql = bulkOperation switch
             {
-                BulkOperation.Insert => BulkInserter.InsertAsync(entityProps.tableName, entityProps.keyProperties, entityProps.nonKeyProperties, entityProps.allProperties, batch),
-                BulkOperation.Upsert => BulkUpserter.UpserterAsync().tableName, entityProps.keyProperties, entityProps.nonKeyProperties, entityProps.allProperties, batch),
-                BulkOperation.Update => BulkUpdater.UpdateAsync(entityProps.tableName, entityProps.keyProperties, entityProps.nonKeyProperties, entityProps.allProperties, batch),
+                BulkOperation.Insert => BulkInserter.InsertAsync(context, batchedEntities, entityProps),
                 _ => throw new ArgumentOutOfRangeException(nameof(bulkOperation), bulkOperation, "Unsupported bulk operation type.")
             };
-
-            var parameters = BuildParameters(batch, entityProps.allProperties);
-            await using var command = new MySqlCommand(sql, connection);
-            command.Parameters.AddRange(parameters.Select((p, i) =>
-                new MySqlParameter($"@{i}", p)
-            ).ToArray());
-            
-            await command.PrepareAsync();
-
-            await command.ExecuteNonQueryAsync();
 
             if (options.SetOutputIdentity && (bulkOperation == BulkOperation.Insert || bulkOperation == BulkOperation.Upsert))
             {
@@ -145,8 +134,6 @@ public static class DbContextExtensions
                                 throw new InvalidOperationException("Not every entity was updated with a proper identity value during UPSERT.");
                             break;
                         }
-                        case BulkOperation.Update:
-                            break;
                         default:
                             throw new ArgumentOutOfRangeException(nameof(bulkOperation), bulkOperation, null);
                     }
@@ -155,5 +142,43 @@ public static class DbContextExtensions
 
             if (options.IncludeChildren) await ProcessChildEntitiesAsync(context, batch, options);
         }
+    }
+    
+    private static async Task InsertAsync<T>(DbContext context, IEnumerable<T> entities, EntityProperties entityProps)
+    {
+        var entityList = entities.ToArray();
+        var sql = BuildSqlStatement.BuildInsertSql(entityProps.TableName, entityProps.Properties, entityList);
+        var parameters = BuildSqlStatement.BuildParameters(entityList, entityProps.Properties);
+        
+        await using var cmd = new MySqlCommand(sql, context.Database.GetDbConnection() as MySqlConnection);
+        
+        cmd.Parameters.AddRange(parameters.Select((p, i) =>
+            new MySqlParameter($"@{i}", p)
+        ).ToArray());
+        
+        await cmd.PrepareAsync();
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private async Task UpsertAsync<T>(DbContext context, IEnumerable<T> entities, EntityProperties entityProps)
+    {
+        var entityList = entities.ToArray();
+        var sql = BuildSqlStatement.BuildUpsertSql(entityProps.TableName, entityProps.Properties, entityList);
+        
+        var parameters = BuildSqlStatement.BuildParameters(entityList, entityProps.Properties);
+        
+        await using var cmd = new MySqlCommand(sql, context.Database.GetDbConnection() as MySqlConnection);
+        
+        cmd.Parameters.AddRange(parameters.Select((p, i) =>
+            new MySqlParameter($"@{i}", p)
+        ).ToArray());
+        
+        await cmd.PrepareAsync();
+        await cmd.ExecuteNonQueryAsync();
+    }
+    
+    private async Task UpdateAsync<T>(DbContext context, IEnumerable<T> entities, EntityProperties entityProps)
+    {
+        
     }
 }
