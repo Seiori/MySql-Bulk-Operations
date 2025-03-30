@@ -2,12 +2,10 @@
 
 namespace Seiori.MySql.Classes;
 
-public class EntityProperties<T>
+public class EntityProperties
 {
-    public required string TableName { get; set; }
-    public IKey? PrimaryKey { get; set; }
-    public IEnumerable<IKey>? AlternateKeys { get; set; }
-    public required IEnumerable<IProperty> Properties { get; set; }
-    public IEnumerable<INavigation>? NavigationProperties { get; set; }
-    public required IEnumerable<T> Entities { get; set; }
+    public required string TableName { get; init; }
+    public IEnumerable<IProperty>? KeyProperties { get; init; }
+    public required IEnumerable<IProperty> Properties { get; init; }
+    public IEnumerable<INavigation>? NavigationProperties { get; init; }
 }

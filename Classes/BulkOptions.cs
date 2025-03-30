@@ -19,4 +19,11 @@ public class BulkOptions
     /// When true, child entities (navigation collections) are recursively processed.
     /// </summary>
     public bool IncludeChildren { get; set; } = false;
+    
+    /// <summary>
+    /// Specifies the properties to update on when performing a bulk update operation.
+    /// The key specifies the table
+    /// The value specifies the properties for that table to update on
+    /// <summary>
+    public Dictionary<string, IEnumerable<string>> UpdateOnProperties { get; set; } = new();
 }

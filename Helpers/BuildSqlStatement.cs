@@ -6,25 +6,22 @@ using Seiori.MySql.Classes;
 
 namespace Seiori.MySql.Helpers;
 
-public class BuildSqlStatement
+public static class BuildSqlStatement
 {
-    public static object[] BuildParameters<T>(EntityProperties<T> entityProps)
+    public static object[] BuildParameters<T>(IEnumerable<T> entities, IEnumerable<IProperty> properties)
     {
-        var entities = entityProps.Entities.ToArray();
         return entities.SelectMany(entity =>
-            entityProps.Properties.Select(property => property.PropertyInfo?.GetValue(entity) ?? DBNull.Value)
+            properties.Select(property => property.PropertyInfo?.GetValue(entity) ?? DBNull.Value)
         ).ToArray();
     }
     
-    public static MySqlParameter[] BuildLookupParameters<T>(EntityProperties<T> entityProps, IEnumerable<IProperty> lookupProps)
+    public static MySqlParameter[] BuildLookupParameters<T>(IEnumerable<T> entities, IEnumerable<IProperty> properties)
     {
-        var entities = entityProps.Entities.ToArray();
-        var lookupProperties = lookupProps.ToArray();
-        
+        var propertyList = properties.ToArray();
         var parameters = new List<MySqlParameter>();
         foreach (var entity in entities)
         {
-            foreach (var prop in lookupProperties)
+            foreach (var prop in propertyList)
             {
                 var value = prop.PropertyInfo?.GetValue(entity) ?? DBNull.Value;
                 parameters.Add(new MySqlParameter($"@p{parameters.Count}", value));
@@ -33,36 +30,40 @@ public class BuildSqlStatement
         return parameters.ToArray();
     }
     
-    public static string BuildSelectSql<T>(EntityProperties<T> entityProps)
+    public static string BuildSelectIdentitySql(string tableName, int rowCount, IProperty identityProp, IEnumerable<IProperty> lookupProps)
     {
-        var lookupProperties = entityProps.PrimaryKey?.Properties;
-        if (lookupProperties == null)
-        {
-            var firstAlternateKey = entityProps.AlternateKeys?.FirstOrDefault(ak => ak.Properties.Any());
-            lookupProperties = firstAlternateKey != null ? firstAlternateKey.Properties : entityProps.Properties.ToArray();
-        }
+        var lookupProperties = lookupProps.ToArray();
+        var selectColumns = new List<string>();
+        selectColumns.AddRange(identityProp.GetColumnName());
+        selectColumns.AddRange(lookupProperties.Select(lp => lp.GetColumnName()));
 
         var sb = new StringBuilder();
         sb.Append("SELECT ");
-        sb.Append(string.Join(", ", entityProps.Properties.Select(p => $"`{p.GetColumnName()}`")));
-        sb.Append(" FROM ");
-        sb.Append(entityProps.TableName);
-        sb.Append(" WHERE ");
-        var paramIndex = 0;
-        var conditionList = entityProps.Entities.Select(_ => lookupProperties.Select(p => $"{p.GetColumnName()} = @p{paramIndex++}")).Select(conditions => $"({string.Join(" AND ", conditions)})").ToList();
-        sb.Append(string.Join(" OR ", conditionList));
-        sb.Append(';');
+        sb.Append(string.Join(", ", selectColumns));
+        sb.Append($" FROM {tableName} WHERE ");
+        
+        var conditionsList = new string[rowCount];
+        var lookupColCount = lookupProperties.Length;
+        for (var i = 0; i < rowCount; i++)
+        {
+            var conditions = new string[lookupColCount];
+            for (var j = 0; j < lookupColCount; j++)
+            {
+                conditions[j] = $"{lookupProperties[j].GetColumnName()} = @{i * lookupColCount + j}";
+            }
+            conditionsList[i] = $"({string.Join(" AND ", conditions)})";
+        }
+        sb.Append(string.Join(" OR ", conditionsList));
         return sb.ToString();
     }
     
-    public static string BuildInsertSql<T>(string tableName, IEnumerable<T> entities, ICollection<IProperty> allProperties)
+    public static string BuildInsertSql(string tableName, int rowCount, IEnumerable<IProperty> properties)
     {
-        var entityList = entities.ToList();
-        var rowCount = entityList.Count;
-        var colCount = allProperties.Count;
+        var propertyList = properties.ToArray();
+        var colCount = propertyList.Length;
         var sb = new StringBuilder();
         sb.Append($"INSERT INTO {tableName} (");
-        sb.Append(string.Join(", ", allProperties.Select(p => p.GetColumnName())));
+        sb.Append(string.Join(", ", propertyList.Select(p => p.GetColumnName())));
         sb.Append(") VALUES ");
         var rows = new string[rowCount];
         for (var i = 0; i < rowCount; i++)
@@ -78,15 +79,14 @@ public class BuildSqlStatement
         return sb.ToString();
     }
     
-    public static string BuildUpsertSql<T>(string tableName, IEnumerable<T> entities, ICollection<IProperty> keyProperties, ICollection<IProperty> allProperties, )
+    public static string BuildUpsertSql(string tableName, int rowCount, IEnumerable<IProperty> props)
     {
-        var entityList = entities.ToArray();
-        var rowCount = entityList.Length;
-        var colCount = allProperties.Count;
+        var propertyList = props.ToArray();
         var sb = new StringBuilder();
         sb.Append($"INSERT INTO {tableName} (");
-        sb.Append(string.Join(", ", allProperties.Select(p => p.GetColumnName())));
+        sb.Append(string.Join(", ", propertyList.Select(p => p.GetColumnName())));
         sb.Append(") VALUES ");
+        var colCount = propertyList.Length;
         var rows = new string[rowCount];
         for (var i = 0; i < rowCount; i++)
         {
@@ -99,19 +99,14 @@ public class BuildSqlStatement
         }
         sb.Append(string.Join(", ", rows));
         sb.Append(" ON DUPLICATE KEY UPDATE ");
-        var updateColumns = allProperties.Where(p => !keyProperties.Contains(p)).Select(p => $"{p.GetColumnName()} = VALUES({p.GetColumnName()})");
-        sb.Append(string.Join(", ", updateColumns));
+        sb.Append(string.Join(", ", propertyList.Select(p => $"{p.GetColumnName()} = VALUES({p.GetColumnName()})")));
         return sb.ToString();
     }
-    
-    public static string BuildWhereClause<T>(List<IProperty> keyProperties, List<T> entities)
+
+    public static string BuildUpdateSql<T>(IEnumerable<T> entities, EntityProperties entityProps)
     {
-        var clauses = new string[entities.Count];
-        for (var i = 0; i < entities.Count; i++)
-        {
-            var conditions = keyProperties.Select(p => $"{p.GetColumnName()} = @{i * keyProperties.Count + keyProperties.IndexOf(p)}");
-            clauses[i] = $"({string.Join(" AND ", conditions)})";
-        }
-        return string.Join(" OR ", clauses);
+        var entityList = entities.ToArray();
+
+        return "";
     }
 }
