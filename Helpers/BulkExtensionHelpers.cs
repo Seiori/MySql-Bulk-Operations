@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System.Reflection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using MySqlConnector;
 using Seiori.MySql.Classes;
@@ -7,18 +8,18 @@ namespace Seiori.MySql.Helpers
 {
     public static class BulkExtensionHelpers
     {
-        public static EntityProperties GetEntityProperties(IEntityType entityType)
+        public static EntityProperties GetEntityProperties(IEntityType entityType, BulkOptions options)
         {
             var tableName = entityType.GetTableName();
             if (string.IsNullOrWhiteSpace(tableName)) throw new InvalidOperationException($"No table name found for table {entityType.GetTableName()}");
             
-            var properties = entityType.GetProperties().ToArray();
-            if (properties.Length is 0) throw new InvalidOperationException($"No properties found for table {tableName}");
+            var identityProperty = entityType.GetProperties().FirstOrDefault(p => p.ValueGenerated is ValueGenerated.OnAdd);
+            var properties = entityType.GetProperties().Where(p => p.ValueGenerated is ValueGenerated.Never).ToArray();
             
-            var identityProperty = properties.FirstOrDefault(p => p.ValueGenerated == ValueGenerated.OnAdd);
-            var keys = entityType.GetKeys();
-            var navigationProperties = entityType.GetNavigations().ToArray();
-        
+            if (properties.Length == 0) throw new InvalidOperationException($"No properties found for table {tableName}");
+            var keys = entityType.GetKeys().ToArray();
+            var navigationProperties = entityType.GetNavigations().Where(n => options.ExcludedChildEntities.Contains(n.Name) is false).ToArray();
+            
             return new EntityProperties
             {
                 TableName = tableName,

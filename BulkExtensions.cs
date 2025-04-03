@@ -14,7 +14,7 @@ namespace Seiori.MySql
             optionsAction(options);
 
             var entityType = context.Model.FindEntityType(typeof(T)) ?? throw new InvalidOperationException($"The type {typeof(T).Name} is not part of the EF Core model.");
-            var entityProps = BulkExtensionHelpers.GetEntityProperties(entityType);
+            var entityProps = BulkExtensionHelpers.GetEntityProperties(entityType, options);
         
             var entityList = entities.ToArray();
             if (entityList.Length == 0) return;
@@ -34,19 +34,20 @@ namespace Seiori.MySql
                 };
 
                 await BulkExtensionHelpers.ExecuteBulkNonQueryCommand(context, sql, batch, entityProps.Properties).ConfigureAwait(false);
+
+                if (!options.SetOutputIdentity) continue;
+                
+                await SetIdentityProperties(context, batch, entityProps).ConfigureAwait(false);
             }
-        
-            if (options.SetOutputIdentity)
-            {
-                await SetIdentityProperties(context, entityList, entityProps).ConfigureAwait(false);
-                options.SetOutputIdentity = false;
-            }
-        
-            if (options.IncludeChildren && entityProps.NavigationProperties is not null)
+            
+            if (options.CascadeUpdate && entityProps.NavigationProperties is not null)
             {
                 foreach (var navProp in entityProps.NavigationProperties)
                 {
-                    BulkExtensionHelpers.UpdateChildForeignKeys(context, navProp, entityList);
+                    if (options.SetOutputIdentity)
+                    {
+                        BulkExtensionHelpers.UpdateChildForeignKeys(context, navProp, entityList);   
+                    }
                 
                     var childEntities = entityList
                         .SelectMany(parent =>
@@ -88,7 +89,7 @@ namespace Seiori.MySql
                     group => group.Last() 
                 );
             var sql = BuildSqlStatement.BuildSelectIdentitySql(entityProps.TableName, entityList.Length, entityProps.IdentityProperty, lookupProperties);
-            var results = await BulkExtensionHelpers.ExecuteBulkReaderAsync(context, sql, entityList, entityProps.Properties).ConfigureAwait(false);
+            var results = await BulkExtensionHelpers.ExecuteBulkReaderAsync(context, sql, entityList, lookupProperties).ConfigureAwait(false);
             
             foreach (var result in results)
             {
@@ -101,15 +102,14 @@ namespace Seiori.MySql
                     
                     var targetType = lookupProperties[i].ClrType;
             
-                    if (targetType.IsEnum is false)
+                    if (targetType.IsEnum)
+                    {
+                        lookupValues[i] = Enum.ToObject(targetType, dbValue);
+                    }
+                    else
                     {
                         lookupValues[i] = Convert.ChangeType(dbValue, targetType);
-                        continue;
                     }
-                
-                    var enumUnderlyingType = Enum.GetUnderlyingType(targetType);
-                    var numericValue = Convert.ChangeType(dbValue, enumUnderlyingType);
-                    lookupValues[i] = Enum.ToObject(targetType, numericValue);
                 }
             
                 var key = string.Join("|", lookupValues);

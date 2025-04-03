@@ -1,4 +1,6 @@
-﻿namespace Seiori.MySql.Classes
+﻿using Microsoft.EntityFrameworkCore.Metadata;
+
+namespace Seiori.MySql.Classes
 {
     /// <summary>
     /// Represents options for configuring bulk operations.
@@ -21,15 +23,15 @@
         public bool SetOutputIdentity { get; set; } = false;
 
         /// <summary>
-        /// Gets or sets a value indicating whether child entities (defined in navigation collections) 
-        /// should be recursively processed as part of the bulk operation.
+        /// Gets or sets a value indicating whether child entities (defined by navigation collections)
+        /// should be recursively updated as part of the bulk operation.
         /// </summary>
-        public bool IncludeChildren { get; set; } = false;
+        public bool CascadeUpdate { get; set; } = false;
 
         /// <summary>
-        /// Gets or sets a dictionary that specifies the properties to update on when performing a bulk update operation.
-        /// The key represents the table name, and the value represents a collection of property names to update on that table.
+        /// Gets or sets the list of child entity navigation property names that should be excluded
+        /// from the bulk operation.
         /// </summary>
-        public Dictionary<string, IEnumerable<string>> UpdateOnProperties { get; set; } = new();
+        public IEnumerable<string> ExcludedChildEntities { get; set; } = new List<string>();
     }
 }
