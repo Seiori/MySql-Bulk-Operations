@@ -1,37 +1,41 @@
-﻿using Microsoft.EntityFrameworkCore.Metadata;
-
-namespace Seiori.MySql.Classes
+﻿namespace Seiori.MySql.Classes
 {
     /// <summary>
-    /// Represents options for configuring bulk operations.
-    /// This class provides settings that control how bulk operations are processed,
-    /// including batch sizes, retrieval of auto-generated identity values, recursive processing 
-    /// of child entities, and specifying which properties to update during bulk update operations.
+    /// Represents options for configuring bulk database operations.
+    /// Provides settings to control batching, identity retrieval, and recursive processing of related entities.
     /// </summary>
     public class BulkOptions
     {
         /// <summary>
-        /// Gets or sets the number of entities to be processed per batch.
-        /// The default value is 2500.
+        /// Gets or sets the number of entities processed in each database command batch.
+        /// This affects the size of temporary tables and the number of entities handled per SQL statement (e.g., UPDATE, INSERT SELECT).
+        /// Setting this can help manage memory usage and prevent timeout errors for very large datasets.
+        /// The default value is 1000.
         /// </summary>
-        public int BatchSize { get; set; } = 2500;
+        public int BatchSize { get; set; } = 1000;
 
         /// <summary>
-        /// Gets or sets a value indicating whether the generated auto‑increment identity value
-        /// should be retrieved from the database and applied to the entities after the bulk operation.
+        /// Gets or sets a value indicating whether server-generated identity values (e.g., from AUTO_INCREMENT columns)
+        /// should be retrieved after the operation and updated on the corresponding C# entity objects.
+        /// Requires a suitable non-identity key on the entity for matching.
+        /// The default value is false.
         /// </summary>
-        public bool SetOutputIdentity { get; set; } = false;
+        public bool SetOutputIdentity { get; set; }
 
         /// <summary>
-        /// Gets or sets a value indicating whether child entities (defined by navigation collections)
-        /// should be recursively updated as part of the bulk operation.
+        /// Gets or sets a value indicating whether related child entities, discovered via navigation properties,
+        /// should be recursively processed using the same bulk operation (Insert/Upsert).
+        /// If true, all navigable children will be processed unless explicitly excluded via <see cref="ExcludedNavigationPropertyNames"/>.
+        /// The default value is false.
         /// </summary>
-        public bool CascadeUpdate { get; set; } = false;
+        public bool IncludeChildEntities { get; set; }
 
         /// <summary>
-        /// Gets or sets the list of child entity navigation property names that should be excluded
-        /// from the bulk operation.
+        /// Gets or sets a collection of navigation property names (as strings) that should be *excluded*
+        /// from recursive processing when <see cref="IncludeChildEntities"/> is true.
+        /// This allows skipping specific relationships (e.g., large audit trails, complex sub-graphs handled separately).
+        /// The default is an empty collection, meaning no navigation properties are excluded by default.
         /// </summary>
-        public IEnumerable<string> ExcludedChildEntities { get; set; } = new List<string>();
+        public IEnumerable<string> ExcludedNavigationPropertyNames { get; set; } = []; // Renamed and default changed
     }
 }
