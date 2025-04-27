@@ -28,7 +28,10 @@ namespace Seiori.MySql
             
             var entityType = context.Model.FindEntityType(typeof(T)) ?? throw new InvalidOperationException($"The type {typeof(T).Name} is not part of the EF Core model.");
             var entityProperties = BulkExtensionHelpers.GetEntityProperties(entityType, options);
-        
+            
+            var entityKeyEqualityComparer = new EntityKeyEqualityComparer<T>(entityProperties.KeyProperties);
+            entityList = entityList.Distinct(entityKeyEqualityComparer).ToArray();
+            
             await context.Database.OpenConnectionAsync().ConfigureAwait(false);
             
             var tempTableName = await CreateAndLoadTempTable(context, entityProperties.TableName, entityProperties.Properties, entityProperties.KeyProperties, entityList).ConfigureAwait(false);
@@ -125,27 +128,28 @@ namespace Seiori.MySql
             string tempTableName
             )
         {
+            var mainTableName = $"`{entityProperties.TableName}`";
             var keyProperties = entityProperties.KeyProperties.ToArray();
             var keyColumnNames = keyProperties.Select(p => $"`{p.GetColumnName()}`").ToArray();
-            var mainTableName = $"`{entityProperties.TableName}`";
-
+            var allColumnNames = entityProperties.Properties
+                .Select(p => $"`{p.GetColumnName()}`")
+                .ToArray();
             var updateColumnNames = entityProperties.Properties
                 .Where(p => !keyProperties.Contains(p))
                 .Select(p => $"`{p.GetColumnName()}`")
                 .ToArray();
 
-            var allColumnNames = entityProperties.Properties
-                .Select(p => $"`{p.GetColumnName()}`")
-                .ToArray();
-
-            var updateSetClause = string.Join(", ", updateColumnNames.Select(col => $"main.{col} = temp.{col}"));
-            var joinCondition = string.Join(" AND ", keyColumnNames.Select(k => $"main.{k} <=> temp.{k}"));
-
-            var sbUpdate = new StringBuilder();
-            sbUpdate.Append($"UPDATE {mainTableName} AS main ");
-            sbUpdate.Append($"JOIN {tempTableName} AS temp ON {joinCondition} ");
-            sbUpdate.Append($"SET {updateSetClause};");
-            await context.Database.ExecuteSqlRawAsync(sbUpdate.ToString()).ConfigureAwait(false);
+            if (updateColumnNames.Length is not 0)
+            {
+                var joinCondition = string.Join(" AND ", keyColumnNames.Select(k => $"main.{k} <=> temp.{k}"));
+                var updateSetClause = string.Join(", ", updateColumnNames.Select(col => $"main.{col} = temp.{col}"));
+            
+                var sbUpdate = new StringBuilder();
+                sbUpdate.Append($"UPDATE {mainTableName} AS main ");
+                sbUpdate.Append($"JOIN {tempTableName} AS temp ON {joinCondition} ");
+                sbUpdate.Append($"SET {updateSetClause};");
+                await context.Database.ExecuteSqlRawAsync(sbUpdate.ToString()).ConfigureAwait(false);   
+            }
 
             var insertJoinCondition = string.Join(" AND ", keyColumnNames.Select(k => $"main.{k} <=> temp.{k}"));
             var sbInsert = new StringBuilder();
