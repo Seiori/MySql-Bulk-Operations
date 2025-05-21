@@ -21,21 +21,5 @@
         /// The default value is false.
         /// </summary>
         public bool SetOutputIdentity { get; set; }
-
-        /// <summary>
-        /// Gets or sets a value indicating whether related child entities, discovered via navigation properties,
-        /// should be recursively processed using the same bulk operation (Insert/Upsert).
-        /// If true, all navigable children will be processed unless explicitly excluded via <see cref="ExcludedNavigationPropertyNames"/>.
-        /// The default value is false.
-        /// </summary>
-        public bool IncludeChildEntities { get; set; }
-
-        /// <summary>
-        /// Gets or sets a collection of navigation property names (as strings) that should be *excluded*
-        /// from recursive processing when <see cref="IncludeChildEntities"/> is true.
-        /// This allows skipping specific relationships (e.g., large audit trails, complex sub-graphs handled separately).
-        /// The default is an empty collection, meaning no navigation properties are excluded by default.
-        /// </summary>
-        public IEnumerable<string> ExcludedNavigationPropertyNames { get; set; } = []; // Renamed and default changed
     }
 }

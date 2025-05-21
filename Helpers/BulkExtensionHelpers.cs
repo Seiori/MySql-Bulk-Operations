@@ -7,8 +7,7 @@ namespace Seiori.MySql.Helpers
     public static class BulkExtensionHelpers
     {
         public static EntityProperties GetEntityProperties(
-            IEntityType entityType, 
-            BulkOptions options
+            IEntityType entityType
             )
         {
             var tableName = entityType.GetTableName();
@@ -21,16 +20,13 @@ namespace Seiori.MySql.Helpers
             
             var keyProperties = entityType.GetKeys().FirstOrDefault(k => k.Properties.All(p => p.ValueGenerated is ValueGenerated.Never))?.Properties;
             if (keyProperties is null || keyProperties.Count is 0) throw new InvalidOperationException($"No key properties found for table {tableName}. Excluding the identity property.");
-            
-            var navigationProperties = entityType.GetNavigations().Where(n => options.ExcludedNavigationPropertyNames.Contains(n.ClrType.Name) is false).ToArray();
-            
+
             return new EntityProperties
             {
                 TableName = tableName,
                 Properties = properties,
                 IdentityProperty = identityProperty,
                 KeyProperties = keyProperties,
-                NavigationProperties = navigationProperties
             };
         }
         

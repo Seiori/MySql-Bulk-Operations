@@ -1,6 +1,4 @@
-﻿using System.Collections;
-using System.Data;
-using System.Reflection;
+﻿using System.Data;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -17,24 +15,25 @@ namespace Seiori.MySql
             this DbContext context, 
             BulkOperation bulkOperation, 
             IEnumerable<T> entities, 
-            Action<BulkOptions> optionsAction
+            Action<BulkOptions>? optionsAction = null
             ) where T : class
         {
             var options = new BulkOptions();
-            optionsAction(options);
+
+            optionsAction?.Invoke(options);
 
             var entityList = entities.ToArray();
             if (entityList.Length == 0) return;
             
             var entityType = context.Model.FindEntityType(typeof(T)) ?? throw new InvalidOperationException($"The type {typeof(T).Name} is not part of the EF Core model.");
-            var entityProperties = BulkExtensionHelpers.GetEntityProperties(entityType, options);
+            var entityProperties = BulkExtensionHelpers.GetEntityProperties(entityType);
             
             var entityKeyEqualityComparer = new EntityKeyEqualityComparer<T>(entityProperties.KeyProperties);
-            entityList = entityList.Distinct(entityKeyEqualityComparer).ToArray();
+            var distinctEntityList = entityList.Distinct(entityKeyEqualityComparer).ToArray();
             
             await context.Database.OpenConnectionAsync().ConfigureAwait(false);
             
-            var tempTableName = await CreateAndLoadTempTable(context, entityProperties.TableName, entityProperties.Properties, entityProperties.KeyProperties, entityList).ConfigureAwait(false);
+            var tempTableName = await CreateAndLoadTempTable(context, entityProperties.TableName, entityProperties.Properties, entityProperties.KeyProperties, distinctEntityList).ConfigureAwait(false);
             var tempTableNameQuoted = $"`{tempTableName}`";
             
             try
@@ -68,35 +67,11 @@ namespace Seiori.MySql
                 await context.Database.ExecuteSqlRawAsync(dropTempTableSql).ConfigureAwait(false);
             }
             
-            if (options is { SetOutputIdentity: true, IncludeChildEntities: true } && entityProperties.NavigationProperties is not null)
+            if (options.SetOutputIdentity && entityProperties.IdentityProperty is not null)
             {
-                foreach (var navProp in entityProperties.NavigationProperties)
+                foreach (var navProp in entityType.GetNavigations())
                 {
-                    BulkExtensionHelpers.UpdateChildForeignKeys(context, navProp, entityList);
-                 
-                    var childEntities = new List<object>();
-                    foreach (var parentEntity in entityList)
-                    {
-                        var navigationValue = navProp.PropertyInfo?.GetValue(parentEntity);
-                        if (navigationValue is IEnumerable children and not string)
-                        {
-                            childEntities.AddRange(children.OfType<object>());
-                        }
-                        else if (navigationValue != null)
-                        {
-                            childEntities.Add(navigationValue);
-                        }
-                    }
-            
-                    if (childEntities.Count == 0) continue;
-                    
-                    var childClrType = navProp.TargetEntityType.ClrType;
-                    var castMethod = typeof(Enumerable).GetMethod(nameof(Enumerable.Cast), BindingFlags.Public | BindingFlags.Static)!.MakeGenericMethod(childClrType);
-                    var typedChildEntities = castMethod.Invoke(null, [childEntities]);
-            
-                    if (typedChildEntities == null) continue;
-                    
-                    await BulkOperationAsync(context, bulkOperation, (dynamic)typedChildEntities, optionsAction).ConfigureAwait(false);
+                    BulkExtensionHelpers.UpdateChildForeignKeys(context, navProp, entityList); 
                 }
             }
         }
@@ -256,10 +231,15 @@ namespace Seiori.MySql
             
             var keyPropertyList = entityProperties.KeyProperties.ToArray();
             var entityList = entities.ToArray();
-            var entityDictionary = entityList.ToDictionary(
-                e => string.Join("|", keyPropertyList.Select(p => p.PropertyInfo?.GetValue(e)?.ToString() ?? "NULL")),
-                e => e
-            );
+            var entityLookup = entityList
+                .ToLookup(
+                    e => string.Join("|", keyPropertyList.Select(p =>
+                    {
+                        var value = p.PropertyInfo?.GetValue(e);
+                        return value?.ToString() ?? "NULL";
+                    })),
+                    e => e
+                );
             var keyColumnNames = keyPropertyList.Select(p => $"`{p.GetColumnName()}`").ToArray();
             
             var sbSelect = new StringBuilder();
@@ -299,10 +279,13 @@ namespace Seiori.MySql
                 }
                 
                 var key = string.Join("|", lookupValues.Select(lv => lv.ToString() ?? "NULL"));
-                if (entityDictionary.TryGetValue(key, out var entity) is false) continue;
                 var identityTargetType = identityProperty.ClrType;
                 var convertedIdentityValue = Convert.ChangeType(identityValue, identityTargetType);
-                identityProperty.PropertyInfo?.SetValue(entity, convertedIdentityValue);
+
+                foreach (var entity in entityLookup[key])
+                {
+                    identityProperty.PropertyInfo?.SetValue(entity, convertedIdentityValue);
+                }
             }
         }
     }
