@@ -5,6 +5,12 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
     </PropertyGroup>
+    
+    <PropertyGroup>
+        <PackageId>Nuget.Workflow</PackageId>
+        <RepositoryType>git</RepositoryType>
+        <RepositoryUrl>https://github.com/Seiori/MySql-Bulk-Operations.git</RepositoryUrl>
+    </PropertyGroup>
 
     <ItemGroup>
       <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.0-preview.3.efcore.9.0.0" />
