@@ -31,9 +31,9 @@ namespace Seiori.MySql
             var entityKeyEqualityComparer = new EntityKeyEqualityComparer<T>(entityProperties.KeyProperties);
             var distinctEntityList = entityList.Distinct(entityKeyEqualityComparer).ToArray();
             
-            await context.Database.OpenConnectionAsync().ConfigureAwait(false);
+            await context.Database.OpenConnectionAsync();
             
-            var tempTableName = await CreateAndLoadTempTable(context, entityProperties.TableName, entityProperties.Properties, entityProperties.KeyProperties, distinctEntityList).ConfigureAwait(false);
+            var tempTableName = await CreateAndLoadTempTable(context, entityProperties.TableName, entityProperties.Properties, entityProperties.KeyProperties, distinctEntityList);
             var tempTableNameQuoted = $"`{tempTableName}`";
             
             try
@@ -41,10 +41,10 @@ namespace Seiori.MySql
                 switch (bulkOperation)
                 {
                     case BulkOperation.Insert:
-                        await Insert(context, entityProperties, tempTableNameQuoted).ConfigureAwait(false);
+                        await Insert(context, entityProperties, tempTableNameQuoted);
                         break;
                     case BulkOperation.Upsert:
-                        await Upsert(context, entityProperties, tempTableNameQuoted).ConfigureAwait(false);
+                        await Upsert(context, entityProperties, tempTableNameQuoted);
                         break;
                     case BulkOperation.Update:
                     default:
@@ -53,7 +53,7 @@ namespace Seiori.MySql
                 
                 if (options.SetOutputIdentity && entityProperties.IdentityProperty is not null)
                 {
-                    await SetOutputIdentities(context, entityProperties, tempTableName, entityList).ConfigureAwait(false);
+                    await SetOutputIdentities(context, entityProperties, tempTableName, entityList);
                 }
             }
             catch (Exception e)
@@ -64,7 +64,7 @@ namespace Seiori.MySql
             finally
             {
                 var dropTempTableSql = $"DROP TEMPORARY TABLE IF EXISTS `{tempTableName}`;";
-                await context.Database.ExecuteSqlRawAsync(dropTempTableSql).ConfigureAwait(false);
+                await context.Database.ExecuteSqlRawAsync(dropTempTableSql);
             }
             
             if (options.SetOutputIdentity && entityProperties.IdentityProperty is not null)
@@ -94,7 +94,7 @@ namespace Seiori.MySql
             sbInsert.Append($"INSERT IGNORE INTO {mainTableName} ({insertColumnNames}) ");
             sbInsert.Append($"SELECT {selectColumnNames} FROM {tempTableName} AS temp;");
 
-            await context.Database.ExecuteSqlRawAsync(sbInsert.ToString()).ConfigureAwait(false);
+            await context.Database.ExecuteSqlRawAsync(sbInsert.ToString());
         }
         
         private static async Task Upsert(
@@ -105,7 +105,6 @@ namespace Seiori.MySql
         {
             var mainTableName = $"`{entityProperties.TableName}`";
             var keyProperties = entityProperties.KeyProperties.ToArray();
-            var keyColumnNames = keyProperties.Select(p => $"`{p.GetColumnName()}`").ToArray();
             var allColumnNames = entityProperties.Properties
                 .Select(p => $"`{p.GetColumnName()}`")
                 .ToArray();
@@ -114,27 +113,14 @@ namespace Seiori.MySql
                 .Select(p => $"`{p.GetColumnName()}`")
                 .ToArray();
 
-            if (updateColumnNames.Length is not 0)
-            {
-                var joinCondition = string.Join(" AND ", keyColumnNames.Select(k => $"main.{k} <=> temp.{k}"));
-                var updateSetClause = string.Join(", ", updateColumnNames.Select(col => $"main.{col} = temp.{col}"));
-            
-                var sbUpdate = new StringBuilder();
-                sbUpdate.Append($"UPDATE {mainTableName} AS main ");
-                sbUpdate.Append($"JOIN {tempTableName} AS temp ON {joinCondition} ");
-                sbUpdate.Append($"SET {updateSetClause};");
-                await context.Database.ExecuteSqlRawAsync(sbUpdate.ToString()).ConfigureAwait(false);   
-            }
+            var insertColumnNames = string.Join(", ", allColumnNames);
+            var selectColumnNames = string.Join(", ", allColumnNames.Select(c => $"temp.{c}"));
+            var sbUpsert = new StringBuilder();
+            sbUpsert.Append($"INSERT INTO {mainTableName} ({insertColumnNames}) ");
+            sbUpsert.Append($"SELECT {selectColumnNames} FROM {tempTableName} AS temp ");
+            sbUpsert.Append($"ON DUPLICATE KEY UPDATE {string.Join(", ", updateColumnNames.Select(c => $"{c} = VALUES({c})"))}");
 
-            var insertJoinCondition = string.Join(" AND ", keyColumnNames.Select(k => $"main.{k} <=> temp.{k}"));
-            var sbInsert = new StringBuilder();
-            sbInsert.Append($"INSERT INTO {mainTableName} ({string.Join(", ", allColumnNames)}) ");
-            sbInsert.Append($"SELECT {string.Join(", ", allColumnNames.Select(c => $"temp.{c}"))} ");
-            sbInsert.Append($"FROM {tempTableName} AS temp ");
-            sbInsert.Append($"LEFT JOIN {mainTableName} AS main ON {insertJoinCondition} ");
-            sbInsert.Append($"WHERE main.{keyColumnNames.First()} IS NULL;");
-
-            await context.Database.ExecuteSqlRawAsync(sbInsert.ToString()).ConfigureAwait(false);
+            await context.Database.ExecuteSqlRawAsync(sbUpsert.ToString());
         }
 
         private static DataTable ConvertEntitiesToDataTable<T>(
@@ -198,7 +184,7 @@ namespace Seiori.MySql
             }
             sbCreate.Append(") ENGINE=MEMORY;");
             
-            await context.Database.ExecuteSqlRawAsync(sbCreate.ToString()).ConfigureAwait(false);
+            await context.Database.ExecuteSqlRawAsync(sbCreate.ToString());
             
             var table = ConvertEntitiesToDataTable(tempTableName, propertyList, entities);
             
@@ -214,7 +200,7 @@ namespace Seiori.MySql
             {
                 bulkCopy.ColumnMappings.Add(new MySqlBulkCopyColumnMapping(table.Columns.IndexOf(column), column.ColumnName));
             }
-            await bulkCopy.WriteToServerAsync(table).ConfigureAwait(false);
+            await bulkCopy.WriteToServerAsync(table);
 
             return tempTableName;
         }
@@ -256,8 +242,8 @@ namespace Seiori.MySql
             
             await using var cmd = context.Database.GetDbConnection().CreateCommand();
             cmd.CommandText = sbSelect.ToString();
-            await using var reader = await cmd.ExecuteReaderAsync().ConfigureAwait(false);
-            while (await reader.ReadAsync().ConfigureAwait(false))
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
             {
                 var identityValue = reader.GetValue(0);
                 var lookupValues = new object[keyColumnNames.Length];
